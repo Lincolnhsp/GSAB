@@ -1,0 +1,399 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Git Auto Builder</title>
+<style>
+:root{--bg:#f6f7f9;--fg:#1c1e21;--card:#fff;--bd:#d9dce1;--ac:#2563eb}
+@media(prefers-color-scheme:dark){:root{--bg:#14161a;--fg:#e6e8eb;--card:#1d2026;--bd:#333842;--ac:#5b8def}}
+*{box-sizing:border-box}
+body{font:14px system-ui,sans-serif;background:var(--bg);color:var(--fg);margin:0;padding:20px}
+main{max-width:1180px;margin:auto}
+h1{margin:0 0 14px;font-size:22px} h2{font-size:12px;margin:0 0 6px;opacity:.7;text-transform:uppercase;letter-spacing:.05em}
+.row{display:flex;gap:8px;margin-bottom:10px}
+input[type=text],textarea,select{padding:8px;border:1px solid var(--bd);border-radius:8px;background:var(--card);color:var(--fg);font:inherit}
+input[type=text]{flex:1}
+button{padding:9px 16px;border:0;border-radius:8px;background:var(--ac);color:#fff;font:inherit;cursor:pointer}
+button.sec{background:transparent;color:var(--ac);border:1px solid var(--ac)}
+button:disabled{opacity:.4;cursor:default}
+.card{background:var(--card);border:1px solid var(--bd);border-radius:10px;padding:12px 16px;margin-bottom:10px;font-size:17px;font-weight:600}
+.card small{display:block;font-weight:400;font-size:13px;opacity:.7;margin-top:3px}
+.opts{display:flex;flex-wrap:wrap;gap:10px;margin-bottom:10px}
+fieldset{border:1px solid var(--bd);border-radius:8px;padding:6px 12px;margin:0;background:var(--card)}
+legend{font-size:12px;opacity:.7;padding:0 4px} fieldset label{display:block;margin:2px 0;white-space:nowrap}
+fieldset small{display:block;opacity:.6;font-size:12px;margin-top:3px}
+#exlist{max-height:90px;overflow:auto}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+@media(max-width:800px){.grid{grid-template-columns:1fr}}
+#log{height:300px;overflow:auto;background:#101214;color:#d4d4d4;border-radius:8px;padding:10px;font:13px Consolas,monospace;white-space:pre-wrap}
+#log .ok{color:#6fdc8c}#log .err{color:#ff7b72}#log .dim{color:#7d8590}#log .hit{color:#ffd866}
+textarea{width:100%;height:300px;font:12px Consolas,monospace;resize:vertical;margin-bottom:8px}
+.btns{display:flex;gap:8px;flex-wrap:wrap}
+</style>
+</head>
+<body>
+<main>
+<h1>Git Auto Builder</h1>
+<div class="row">
+  <input type="text" id="url" placeholder="https://github.com/usuario/repositorio.git">
+  <button id="go">Analisar URL</button>
+  <button id="loc" class="sec">Pasta local…</button>
+  <input type="file" id="dir" webkitdirectory hidden>
+</div>
+<div class="card" id="res">Aguardando análise…</div>
+
+<div class="opts" id="opts">
+  <fieldset><legend>Sistema de build (arquivo encontrado)</legend><select id="sys" style="max-width:340px"></select></fieldset>
+  <fieldset><legend>Arquitetura</legend>
+    <label><input type="checkbox" id="a_x86"> x86 (32 bits)</label>
+    <label><input type="checkbox" id="a_x64" checked> x64 (64 bits)</label></fieldset>
+  <fieldset><legend>Configuração</legend>
+    <label><input type="checkbox" id="c_Release" checked> Release</label>
+    <label><input type="checkbox" id="c_Debug"> Debug</label></fieldset>
+  <fieldset id="exbox" hidden><legend id="exlg">Definições do projeto</legend><div id="exlist"></div></fieldset>
+  <fieldset><legend>Otimizações (Release)</legend>
+    <label><input type="checkbox" id="o_lto"> LTCG / LTO</label>
+    <label><input type="checkbox" id="o_pgo"> PGO (2 fases, com treino)</label>
+    <label><input type="checkbox" id="o_avx2"> AVX2</label>
+    <label><input type="checkbox" id="o_avx512"> AVX-512</label>
+    <label><input type="checkbox" id="o_fast"> /fp:fast</label>
+    <label><input type="checkbox" id="o_par"> /Qpar</label>
+    <input type="text" id="o_extra" placeholder="flags extras (ex: /Ob3)" style="width:100%;margin-top:4px"></fieldset>
+  <fieldset><legend>Opções de publish (.NET)</legend>
+    <label><input type="checkbox" id="p_sc"> Self-contained</label>
+    <label><input type="checkbox" id="p_single"> Arquivo único (SingleFile)</label>
+    <label><input type="checkbox" id="p_trim"> Trimmed (reduz o tamanho)</label>
+    <label><input type="checkbox" id="p_comp"> Compressão no arquivo único</label>
+    <label><input type="checkbox" id="p_r2r" checked> ReadyToRun</label>
+    <small>Trimmed e compressão exigem self-contained;<br>marcá-los já liga o que for preciso.</small></fieldset>
+  <fieldset><legend>Pasta de saída (opcional)</legend>
+    <input type="text" id="o_out" placeholder=".\BIN  ou  .\APP" style="width:200px">
+    <small>Vazio = pasta padrão do projeto.</small></fieldset>
+</div>
+
+<div class="grid">
+  <div><h2>Processo</h2><div id="log"></div></div>
+  <div><h2 id="bh">Script .BAT gerado</h2><textarea id="bat" readonly></textarea>
+    <div class="btns">
+      <button id="dlf" disabled title="Clona o repositório, baixa as dependências e compila">Salvar Script BAT</button>
+      <button id="dlb" class="sec" disabled title="Só compila. Salve na pasta do projeto (build.bat)">Salvar Build</button>
+      <button id="dlp" class="sec" disabled title="Só publica. Salve na pasta do projeto (publish.bat)">Salvar Publish</button>
+    </div></div>
+</div>
+</main>
+<script>
+const ARCH = {
+  x64: {vc:'x64', plat:'x64',   rid:'win-x64', rust:'x86_64-pc-windows-msvc', go:'amd64'},
+  x86: {vc:'x86', plat:'Win32', rid:'win-x86', rust:'i686-pc-windows-msvc',   go:'386'}
+};
+const VCV = 'call "%VSP%\\VC\\Auxiliary\\Build\\vcvarsall.bat" ';
+const NOCHK = /^(set|where|for|findstr|echo|pause|robocopy|mkdir|if not defined|if errorlevel 8)\b/;
+// pastas ignoradas na busca (dependências de terceiros costumam ter seus próprios projetos)
+const SKIP = /(^|\/)(\.git|node_modules|bin|obj|vendor|third[_-]?party|external|extern|deps|packages)\//i;
+const RULES = [  // d = profundidade máxima da busca (1 = só a raiz)
+ {id:'cmake',  n:'CMake (C/C++)', re:/^CMakeLists\.txt$/i, k:'msvc', d:4},
+ {id:'meson',  n:'Meson (C/C++)', re:/^meson\.build$/i, k:'msvc', d:3},
+ {id:'sln',    n:'Visual Studio (sln / vcxproj)', re:/\.(sln|vcxproj)$/i, k:'msvc', d:5},
+ {id:'dotnet', n:'.NET / C# (csproj)', re:/\.csproj$/i, k:'dotnet', d:4},
+ {id:'rust',   n:'Rust (Cargo)', re:/^Cargo\.toml$/i, k:'rust', d:3},
+ {id:'go',     n:'Go', re:/^go\.mod$/i, k:'go', d:3},
+ {id:'gradle', n:'Java (Gradle)', re:/^(build\.gradle(\.kts)?|gradlew\.bat)$/i, k:'plain', d:3, c:[
+  'if exist gradlew.bat (call gradlew.bat build -x test) else (call gradle build -x test)']},
+ {id:'maven',  n:'Java (Maven)', re:/^pom\.xml$/i, k:'plain', d:3, c:[
+  'if exist mvnw.cmd (call mvnw.cmd -B clean package -DskipTests) else (call mvn -B clean package -DskipTests)']},
+ {id:'node',   n:'Node.js', re:/^package\.json$/i, k:'plain', d:2, c:[
+  'if exist pnpm-lock.yaml (call pnpm install --frozen-lockfile) else if exist yarn.lock (call yarn install --frozen-lockfile) else if exist package-lock.json (call npm ci) else (call npm install)',
+  'set NODE_ENV=production',
+  'findstr /c:"\\"build\\"" package.json >nul && call npm run build']},
+ {id:'python', n:'Python', re:/^(pyproject\.toml|setup\.py|requirements\.txt)$/i, k:'plain', d:2, c:[
+  'python -m venv .venv','call .venv\\Scripts\\activate.bat','python -m pip install -U pip wheel build',
+  'if exist requirements.txt python -m pip install -r requirements.txt',
+  'if exist pyproject.toml (python -m build --wheel) else if exist setup.py (python -m build --wheel)']}
+];
+
+const $ = id => document.getElementById(id);
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const esc = s => s.replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const T = s => s.replace(/\W+/g, '_');
+const win = p => p.replace(/\//g, '\\');
+const dirOf = p => p.includes('/') ? p.slice(0, p.lastIndexOf('/')) : '';
+const baseName = p => p.slice(p.lastIndexOf('/') + 1);
+const depthOf = p => p.split('/').length;
+let S = null, script = '', repo = 'repo', njobs = 0, kind = 'full';
+
+function log(t, c = '') {
+  const d = document.createElement('div'); d.className = c; d.textContent = t;
+  $('log').append(d); $('log').scrollTop = 1e9;
+}
+const nameOf = u => u.replace(/\.git$/, '').split(/[\/:]/).filter(Boolean).pop() || 'repo';
+
+function getOpts(k) {
+  const c = id => $(id).checked;
+  return {
+    archs: ['x86','x64'].filter(a => c('a_' + a)),
+    base: ['Release','Debug'].filter(x => c('c_' + x)),
+    extras: [...document.querySelectorAll('.ex:checked')].map(e => e.value),
+    publish: k === 'publish',
+    lto: c('o_lto'), pgo: c('o_pgo'), avx2: c('o_avx2'), avx512: c('o_avx512'), fast: c('o_fast'), par: c('o_par'),
+    extra: $('o_extra').value.trim(),
+    sc: c('p_sc'), single: c('p_single'), trim: c('p_trim'), comp: c('p_comp'), r2r: c('p_r2r'),
+    out: $('o_out').value.trim().replace(/"/g, '').replace(/[\\\/]+$/, '')
+  };
+}
+
+// Flags MSVC via _CL_ / _LINK_ (valem para CMake, MSBuild e Meson; _CL_ é aplicada por último)
+function flags(o, dbg) {
+  if (dbg) return {cl:'', lk:''};
+  let cl = '/O2 /Ob2 /Oi /Ot /Gy /DNDEBUG', lk = '/OPT:REF /OPT:ICF';
+  if (o.lto || o.pgo) cl += ' /GL';
+  if (o.pgo) lk = '/LTCG:PGI'; else if (o.lto) lk += ' /LTCG';
+  if (o.avx512) cl += ' /arch:AVX512'; else if (o.avx2) cl += ' /arch:AVX2';
+  if (o.fast) cl += ' /fp:fast';
+  if (o.par) cl += ' /Qpar';
+  if (o.extra) cl += ' ' + o.extra;
+  return {cl, lk};
+}
+
+function jobs(o, cand, ex) {
+  const r = cand.rule, J = [], add = (label, lines) => J.push({label, lines});
+  const dir = win(dirOf(cand.path)), src = dir || '.', file = win(cand.path);
+  const cd = dir ? [`cd /d "${dir}"`] : [];
+  if (r.k === 'plain') { add(r.n, [...cd, ...r.c]); return J; }
+  const cfgs = [...o.base, ...(ex.kind === 'sln' ? o.extras : [])];
+  const presets = r.id === 'cmake' && ex.kind === 'preset' ? o.extras : [];
+  const total = o.archs.length * cfgs.length + presets.length;
+  // com pasta de saída: uma combinação vai direto nela; várias ganham uma subpasta cada
+  const outDir = t => !o.out ? null : total > 1 ? `%OUTROOT%\\${t}` : '%OUTROOT%';
+  for (const a of o.archs) for (const c of cfgs) {
+    const A = ARCH[a], dbg = /debug/i.test(c), rel = !dbg, pgo = o.pgo && rel;
+    const t = T(a + '-' + c), bd = `build\\${t}`, fl = flags(o, dbg), L = [];
+    if (r.k === 'msvc') {
+      L.push(VCV + A.vc + ' >nul');
+      if (fl.cl) L.push(`set "_CL_=${fl.cl}"`, `set "_LINK_=${fl.lk}"`);
+    }
+    if (r.id === 'cmake') {
+      const od = outDir(t) || (o.publish ? `publish\\${t}` : '');
+      const oa = o.out && !o.publish ? ` -DCMAKE_RUNTIME_OUTPUT_DIRECTORY="${od}" -DCMAKE_LIBRARY_OUTPUT_DIRECTORY="${od}"` : '';
+      L.push(`set "GEN=-A ${A.plat}"`, 'where ninja >nul 2>&1 && set "GEN=-G Ninja"',
+        `cmake -S "${src}" -B "${bd}" %GEN% %VCPKG_ARGS% -DCMAKE_BUILD_TYPE=${c}${oa}`,
+        `cmake --build "${bd}" --config ${c} --parallel`);
+      if (pgo) L.push(`echo [PGO] Fase 1 pronta. Execute o programa instrumentado em ${bd} e feche-o.`, 'pause',
+        'set "_LINK_=/LTCG:PGO"', `cmake --build "${bd}" --config ${c} --parallel --clean-first`);
+      if (o.publish) L.push(`cmake --install "${bd}" --config ${c} --prefix "${od}"`);
+    } else if (r.id === 'sln') {
+      const ps = ex.platforms || [];
+      const plat = a === 'x86' ? (ps.includes('Win32') || !ps.includes('x86') ? 'Win32' : 'x86') : 'x64';
+      let P = ` -p:Configuration="${c}" -p:Platform=${plat} -p:WindowsTargetPlatformVersion=10.0 -p:PlatformToolset=%TS%`;
+      const od = outDir(t) || (o.publish ? `%CD%\\publish\\${t}` : null);
+      if (od) { L.push(`set "OD=${od}"`); P += ' -p:OutDir="%OD%\\\\"'; }
+      L.push('msbuild "%SLN%" -restore -m' + P);
+      if (pgo) L.push('echo [PGO] Fase 1 pronta. Execute o programa instrumentado e feche-o.', 'pause',
+        'set "_LINK_=/LTCG:PGO"', 'msbuild "%SLN%" -m -t:Rebuild' + P);
+    } else if (r.id === 'meson') {
+      const od = outDir(t), mb = o.out && !o.publish ? od : bd;
+      L.push(`meson setup "${mb}" "${src}" --buildtype=${dbg ? 'debug' : 'release'}${o.lto && rel ? ' -Db_lto=true' : ''}`, `meson compile -C "${mb}"`);
+      if (o.publish) L.push(`meson install -C "${mb}" --destdir "${od || `%CD%\\publish\\${t}`}"`);
+    } else if (r.id === 'dotnet') {
+      const od = outDir(t) || (o.publish ? `publish\\${t}` : `out\\${t}`);
+      const sc = o.sc || o.trim || o.comp, single = o.single || o.comp;   // trimmed/compressão exigem self-contained
+      const pa = `--self-contained ${sc ? 'true' : 'false'}` + (single ? ' -p:PublishSingleFile=true' : '') + (single && sc ? ' -p:IncludeNativeLibrariesForSelfExtract=true' : '')
+        + (o.trim ? ' -p:PublishTrimmed=true -p:_SuppressWinFormsTrimError=true' : '') + (o.comp ? ' -p:EnableCompressionInSingleFile=true' : '') + (o.r2r && rel ? ' -p:PublishReadyToRun=true' : '');
+      L.push(o.publish
+        ? `dotnet publish "%PROJ%" -c ${c} -r ${A.rid} ${pa} -p:DebugType=${rel ? 'none' : 'embedded'} -o "${od}"`
+        : `dotnet build "%PROJ%" -c ${c} -r ${A.rid} --self-contained false -o "${od}"`);
+    } else if (r.id === 'rust') {
+      const od = outDir(t), td = !o.publish && od ? od : `target\\${t}`;
+      L.push(`where rustup >nul 2>&1 && rustup target add ${A.rust}`);
+      if (rel) {
+        if (o.lto) L.push('set CARGO_PROFILE_RELEASE_LTO=fat', 'set CARGO_PROFILE_RELEASE_CODEGEN_UNITS=1');
+        const f = o.avx512 ? '+avx512f' : o.avx2 ? '+avx2' : '';
+        if (f) L.push(`set "RUSTFLAGS=-C target-feature=${f}"`);
+      }
+      L.push(`cargo build${rel ? ' --release' : ''} --manifest-path "${file}" --target ${A.rust} --target-dir "${td}"`);
+      if (o.publish) L.push(`robocopy "${td}\\${A.rust}\\${rel ? 'release' : 'debug'}" "${od || `publish\\${t}`}" *.exe *.dll /NJH /NJS /NP /NFL /NDL`, 'if errorlevel 8 exit /b 1');
+    } else if (r.id === 'go') {
+      const od = outDir(t) || (o.publish ? `%ROOT%\\publish\\${t}` : `%ROOT%\\bin\\${t}`);
+      L.push(...cd, `mkdir "${od}" 2>nul`, `set GOARCH=${A.go}`, 'set CGO_ENABLED=0');
+      if (a === 'x64' && rel && (o.avx2 || o.avx512)) L.push(`set GOAMD64=${o.avx512 ? 'v4' : 'v3'}`);
+      L.push(`go build -trimpath ${rel ? (o.pgo ? '-pgo=auto ' : '') + '-ldflags="-s -w"' : '-gcflags="all=-N -l"'} -o "${od}\\\\" ./...`);
+    }
+    add(`${a} - ${c}`, L);
+  }
+  for (const p of presets) {   // presets do CMake: eles já definem arquitetura e configuração
+    const dbg = /debug/i.test(p), fl = flags({...o, pgo:false}, dbg), t = T('preset-' + p), hb = ex.buildPresets.includes(p);
+    const L = [VCV + 'x64 >nul'];
+    if (fl.cl) L.push(`set "_CL_=${fl.cl}"`, `set "_LINK_=${fl.lk}"`);
+    L.push(`cmake --preset "${p}"${hb ? '' : ` -B "build\\${t}"`}`,
+      hb ? `cmake --build --preset "${p}"` : `cmake --build "build\\${t}" --config Release --parallel`);
+    add('preset ' + p, L);
+  }
+  return J;
+}
+
+// Preparação comum: pasta de saída, vcpkg, Visual Studio, arquivo de projeto escolhido
+function pre(cand, o, full, hasVcpkg) {
+  const r = cand.rule, L = ['set "ROOT=%CD%"'];
+  if (o.out) L.push(`for %%I in ("${o.out}") do set "OUTROOT=%%~fI"`);
+  if (hasVcpkg && r.id === 'cmake') {
+    if (full) L.push('if not exist ".vcpkg\\vcpkg.exe" git clone https://github.com/microsoft/vcpkg ".vcpkg"',
+      'if not exist ".vcpkg\\vcpkg.exe" call ".vcpkg\\bootstrap-vcpkg.bat" -disableMetrics');
+    L.push('if exist ".vcpkg\\scripts\\buildsystems\\vcpkg.cmake" set VCPKG_ARGS=-DCMAKE_TOOLCHAIN_FILE="%CD%\\.vcpkg\\scripts\\buildsystems\\vcpkg.cmake"');
+  }
+  if (r.k === 'msvc') L.push('set "VSW=%ProgramFiles(x86)%\\Microsoft Visual Studio\\Installer\\vswhere.exe"',
+    'for /f "usebackq delims=" %%I in (`"%VSW%" -latest -products * -property installationPath`) do set "VSP=%%I"');
+  if (r.id === 'sln') L.push(`set "SLN=${win(cand.path)}"`,
+    'for /d %%D in ("%VSP%\\MSBuild\\Microsoft\\VC\\v*") do for /f %%T in (\'dir /b /ad /o-n "%%D\\Platforms\\x64\\PlatformToolsets\\v*" 2^>nul\') do if not defined TS set "TS=%%T"',
+    'if not defined TS set "TS=v143"');
+  if (r.id === 'dotnet') L.push(`set "PROJ=${win(cand.path)}"`);
+  return L;
+}
+
+// Clona, atualiza ou reaproveita a pasta (o script pode ser rodado várias vezes)
+const fetchLines = url => ['if exist ".git" goto :here', `if exist "${repo}\\.git" goto :upd`, `if exist "${repo}\\" goto :enter`,
+  `git clone --recursive "${url || '<URL>'}" "${repo}"`, 'if errorlevel 1 exit /b 1', 'goto :enter', ':upd',
+  'echo [INFO] Pasta ja existe, atualizando...', `git -C "${repo}" pull --ff-only`, ':enter', `cd /d "${repo}"`, 'goto :ready',
+  ':here', 'echo [INFO] Usando o repositorio da pasta atual...', 'git pull --ff-only', ':ready', 'git submodule update --init --recursive'];
+
+// k: 'full' = clona + dependências + compila | 'build' = só compila | 'publish' = só publica
+function build(k) {
+  const full = k === 'full', o = getOpts(k), J = jobs(o, S.cand, S.ex); njobs = J.length;
+  const L = ['@echo off', 'setlocal EnableExtensions', ...(full ? [] : ['cd /d "%~dp0"']), 'set "OKS="', 'set "FAILS="',
+    ...(full ? fetchLines(S.url) : []), ...pre(S.cand, o, full, S.hasVcpkg)];
+  J.forEach((j, i) => L.push(`call :j${i}`, `if errorlevel 1 (set "FAILS=%FAILS% ${T(j.label)}") else set "OKS=%OKS% ${T(j.label)}"`));
+  L.push('echo.', 'echo ===== RESUMO =====', 'echo OK:%OKS%', 'echo FALHAS:%FAILS%', 'pause', 'if defined FAILS exit /b 1', 'exit /b 0');
+  J.forEach((j, i) => {
+    L.push(`:j${i}`, 'setlocal', `echo ===== [${i + 1}/${J.length}] ${j.label} =====`);
+    j.lines.forEach(c => { L.push(c); if (!NOCHK.test(c)) L.push('if errorlevel 1 exit /b 1'); });
+    L.push('exit /b 0');
+  });
+  return L.join('\r\n');
+}
+
+// Procura cada tipo de projeto em até d níveis; os arquivos mais rasos vêm primeiro
+function candidates(paths) {
+  const out = [];
+  for (const r of RULES) {
+    paths.filter(p => depthOf(p) <= r.d && !SKIP.test(p) && r.re.test(baseName(p)))
+      .sort((a, b) => (r.id === 'sln' ? (/\.sln$/i.test(a) ? 0 : 1) - (/\.sln$/i.test(b) ? 0 : 1) : 0) || depthOf(a) - depthOf(b) || a.localeCompare(b))
+      .slice(0, 6).forEach(p => out.push({rule: r, path: p}));
+  }
+  return out;
+}
+
+async function detectExtras(cand) {
+  const ex = {kind:'', items:[], platforms:[], buildPresets:[]};
+  try {
+    if (cand.rule.id === 'sln' && /\.sln$/i.test(cand.path)) {
+      const t = await S.read(cand.path);
+      if (t) {
+        const cs = new Set(), ps = new Set();
+        for (const m of t.matchAll(/^\s*([^|=\r\n{]+)\|([^=\r\n]+?)\s*=\s*\1\|\2\s*$/gm)) { cs.add(m[1].trim()); ps.add(m[2].trim()); }
+        ex.kind = 'sln'; ex.platforms = [...ps];
+        ex.items = [...cs].filter(c => !/^(release|debug)$/i.test(c));
+      }
+    }
+    if (cand.rule.id === 'cmake' && !dirOf(cand.path) && S.paths.includes('CMakePresets.json')) {
+      const j = JSON.parse(await S.read('CMakePresets.json'));
+      ex.kind = 'preset';
+      ex.items = (j.configurePresets || []).filter(p => !p.hidden && !/mac|linux|ubuntu|android|ios|bsd/i.test(p.name)).map(p => p.name);
+      ex.buildPresets = (j.buildPresets || []).map(p => p.name);
+    }
+  } catch (e) { log('Aviso: não foi possível ler as definições do projeto (' + e.message + ')', 'dim'); }
+  return ex;
+}
+
+function render() {
+  script = build(kind);
+  $('bat').value = script; $('dlf').disabled = $('dlb').disabled = $('dlp').disabled = false;
+  $('bh').textContent = 'Script .BAT gerado (' + {full:'clonar + compilar', build:'só Build', publish:'só Publish'}[kind] + ')';
+  $('res').innerHTML = `${S.cand.rule.n}<small>${esc(S.cand.path)} · ${njobs} compilação(ões) no lote${S.cands.length > 1 ? ' · outros arquivos encontrados: escolha em "Sistema de build"' : ''}</small>`;
+}
+
+async function pick(cand) {
+  S.cand = cand; S.ex = await detectExtras(cand);
+  $('exbox').hidden = !S.ex.items.length;
+  $('exlg').textContent = S.ex.kind === 'preset' ? 'Presets CMake' : 'Configurações do .sln';
+  $('exlist').innerHTML = S.ex.items.map(i => `<label><input type="checkbox" class="ex" value="${esc(i)}"> ${esc(i)}</label>`).join('');
+  if (S.ex.items.length) log(`Definições encontradas (${S.ex.kind}): ${S.ex.items.join(', ')}`, 'hit');
+  render();
+}
+
+async function analyze(paths, url, read) {
+  log(`${paths.length} arquivos listados (busca em até 5 níveis).`, 'dim');
+  const cands = candidates(paths);
+  for (const r of RULES) {
+    log(`? ${r.n}...`); await sleep(100);
+    const m = cands.filter(c => c.rule === r);
+    if (m.length) log(`   ENCONTRADO: ${m[0].path}${m.length > 1 ? `  (+${m.length - 1})` : ''}`, 'hit'); else log('   não encontrado', 'dim');
+  }
+  if (!cands.length) { $('res').textContent = 'Tipo de projeto não reconhecido'; log('[ERRO] nenhuma regra casou.', 'err'); return; }
+  S = {paths, url, read, cands, cand: null, ex: {}, hasVcpkg: paths.includes('vcpkg.json')};
+  $('sys').innerHTML = cands.map((c, i) => `<option value="${i}">${esc(c.rule.n + ' — ' + c.path)}</option>`).join('');
+  await pick(cands[0]);
+  log('[OK] Script gerado. Ajuste as opções acima; o script é atualizado na hora.', 'ok');
+}
+
+async function listRemote(u) {
+  const x = new URL(u.trim().replace(/^git@([^:]+):/, 'https://$1/'));
+  const p = x.pathname.replace(/^\/+|\/+$/g, '').replace(/\.git$/, ''), h = x.hostname;
+  const gh = h === 'github.com', gl = h.includes('gitlab');
+  const J = async url => { log('GET ' + url, 'dim'); const r = await fetch(url); if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); };
+  const paths = [];
+  if (gh) paths.push(...(await J(`https://api.github.com/repos/${p}/git/trees/HEAD?recursive=1`)).tree.filter(e => e.type === 'blob').map(e => e.path));
+  else if (gl) for (let i = 1; i <= 15; i++) {
+    const pg = await J(`https://${h}/api/v4/projects/${encodeURIComponent(p)}/repository/tree?recursive=true&per_page=100&page=${i}`);
+    paths.push(...pg.filter(e => e.type === 'blob').map(e => e.path)); if (pg.length < 100) break;
+  } else {
+    const br = (await J(`https://${h}/api/v1/repos/${p}`)).default_branch || 'master';
+    for (let i = 1; i <= 15; i++) {
+      const t = await J(`https://${h}/api/v1/repos/${p}/git/trees/${encodeURIComponent(br)}?recursive=true&per_page=1000&page=${i}`);
+      paths.push(...(t.tree || []).filter(e => e.type === 'blob').map(e => e.path)); if (!t.truncated) break;
+    }
+  }
+  const raw = f => gh ? `https://raw.githubusercontent.com/${p}/HEAD/${f}`
+    : gl ? `https://${h}/api/v4/projects/${encodeURIComponent(p)}/repository/files/${encodeURIComponent(f)}/raw?ref=HEAD`
+    : `https://${h}/api/v1/repos/${p}/raw/${f}`;
+  const read = async f => { const q = await fetch(raw(f)); if (!q.ok) throw new Error(f + ': HTTP ' + q.status); return q.text(); };
+  return {paths, read};
+}
+
+function reset() { $('log').textContent = ''; $('bat').value = ''; $('dlf').disabled = $('dlb').disabled = $('dlp').disabled = true; $('res').textContent = 'Analisando…'; S = null; }
+
+$('go').onclick = async () => {
+  const u = $('url').value.trim(); if (!u) return;
+  reset(); repo = nameOf(u);
+  try { const {paths, read} = await listRemote(u); await analyze(paths, u, read); }
+  catch (e) {
+    log('[ERRO] ' + e.message, 'err');
+    log('Dica: o servidor pode bloquear CORS, limitar requisições ou o repositório ser privado. Clone manualmente e use "Pasta local…".', 'dim');
+    $('res').textContent = 'Falha ao consultar o repositório';
+  }
+};
+$('loc').onclick = () => $('dir').click();
+$('dir').onchange = async e => {
+  const files = [...e.target.files]; if (!files.length) return;
+  reset();
+  const root = files[0].webkitRelativePath.split('/')[0];
+  const paths = files.map(f => f.webkitRelativePath.split('/').slice(1).join('/'));
+  const read = async f => { const x = files.find(y => y.webkitRelativePath === root + '/' + f); return x ? x.text() : null; };
+  repo = $('url').value.trim() ? nameOf($('url').value.trim()) : root;
+  log('Pasta local: ' + root, 'dim');
+  await analyze(paths, $('url').value.trim(), read);
+  e.target.value = '';
+};
+$('opts').addEventListener('change', e => { if (!S) return; if (e.target.id === 'sys') pick(S.cands[+e.target.value]); else render(); });
+$('opts').addEventListener('input', e => { if (S && (e.target.id === 'o_extra' || e.target.id === 'o_out')) render(); });
+
+const save = k => {
+  kind = k; render();   // o preview mostra exatamente o que será baixado
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([script], {type: 'text/plain'}));
+  a.download = k === 'full' ? `script-${repo}.bat` : `${k}.bat`; a.click(); URL.revokeObjectURL(a.href);
+};
+$('dlf').onclick = () => S && save('full');
+$('dlb').onclick = () => S && save('build');
+$('dlp').onclick = () => S && save('publish');
+</script>
+</body>
+</html>

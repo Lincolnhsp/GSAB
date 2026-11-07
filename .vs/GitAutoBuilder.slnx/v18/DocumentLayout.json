@@ -1,0 +1,36 @@
+{
+  "Version": 1,
+  "WorkspaceRootPath": "C:\\Projects\\GIT Auto Builder\\GitAutoBuilder\\",
+  "Documents": [
+    {
+      "AbsoluteMoniker": "D:0:0:{373F59F5-E869-2A98-D7E0-52506B16D431}|GitAutoBuilder.csproj|c:\\projects\\git auto builder\\gitautobuilder\\gitautobuilder.csproj||{04B8AB82-A572-4FEF-95CE-5222444B6B64}|",
+      "RelativeMoniker": "D:0:0:{373F59F5-E869-2A98-D7E0-52506B16D431}|GitAutoBuilder.csproj|solutionrelative:gitautobuilder.csproj||{04B8AB82-A572-4FEF-95CE-5222444B6B64}|"
+    }
+  ],
+  "DocumentGroupContainers": [
+    {
+      "Orientation": 0,
+      "VerticalTabListWidth": 256,
+      "DocumentGroups": [
+        {
+          "DockedWidth": 200,
+          "SelectedChildIndex": 0,
+          "Children": [
+            {
+              "$type": "Document",
+              "DocumentIndex": 0,
+              "Title": "GitAutoBuilder",
+              "DocumentMoniker": "C:\\Projects\\GIT Auto Builder\\GitAutoBuilder\\GitAutoBuilder.csproj",
+              "RelativeDocumentMoniker": "GitAutoBuilder.csproj",
+              "ToolTip": "C:\\Projects\\GIT Auto Builder\\GitAutoBuilder\\GitAutoBuilder.csproj",
+              "RelativeToolTip": "GitAutoBuilder.csproj",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000758|",
+              "WhenOpened": "2026-11-05T00:51:43.727Z",
+              "EditorCaption": ""
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
